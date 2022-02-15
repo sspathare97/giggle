@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <err.h>
+#include <sys/time.h>
 #include "util.h"
 #include "disk_store.h"
 
@@ -201,6 +202,13 @@ void *disk_store_get(struct disk_store *ds, uint32_t id, uint64_t *size)
         *size = 0;
         return NULL;
     }
+    FILE *fp = fopen("disk_zlib_log.csv", "a");
+    if (fp == NULL)
+        err(1, "Could not open log file.");
+
+    // start time
+    struct timeval begin, end;
+    gettimeofday(&begin, 0);
 
     uint64_t start_offset = ds->data_start_offset;
     if (id > 0)
@@ -217,6 +225,15 @@ void *disk_store_get(struct disk_store *ds, uint32_t id, uint64_t *size)
 
     size_t fr = fread(data, *size, 1, ds->data_fp);
     check_file_read(ds->data_file_name, ds->data_fp, 1, fr);
+
+    // end time
+    gettimeofday(&end, 0);
+    long seconds = end.tv_sec - begin.tv_sec;
+    long microseconds = end.tv_usec - begin.tv_usec;
+    long elapsed = seconds * 1e6 + microseconds;
+    // append time, compressed size, uncompressed size
+    fprintf(fp, "%lu\t%lu\t%lu\n", *size, *size, elapsed);
+    fclose(fp);
 
     return data;
 }
