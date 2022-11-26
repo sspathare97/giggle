@@ -2,6 +2,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <sys/mman.h>
 #include <htslib/khash_str2int.h>
 #include "util.h"
 #include "metadata_index.h"
@@ -266,6 +267,57 @@ void fread_data_type_item(char *metadata_index_filename, FILE *metadata_index_fp
       }
       fr = fread(s, sizeof(char), str_width, metadata_index_fp);
       check_file_read(metadata_index_filename, metadata_index_fp, str_width, fr);
+      metadata_item->data.s = s;
+      break;
+      
+    default:
+      err(1, "Unknown data_type %d.\n", type);
+  }
+}
+
+void fread_data_type_item_ptr(char *data, struct metadata_item *metadata_item) {
+  struct metadata_type *metadata_type = metadata_item->type;
+  enum data_type type = metadata_type->data_type;
+  uint8_t str_width;
+  char *s;
+  size_t fr;
+
+  switch (type) {
+    case CHAR: 
+      metadata_item->data.c = *((char *)data);
+      break;
+
+    case INT_8: 
+      metadata_item->data.b = *((int8_t *)data);
+      break;
+      
+    case INT_16: 
+      metadata_item->data.h = *((int16_t *)data);
+      break;
+      
+    case INT_32: 
+      metadata_item->data.i = *((int32_t *)data);
+      break;
+      
+    case INT_64: 
+      metadata_item->data.l = *((int64_t *)data);
+      break;
+      
+    case FLOAT: 
+      metadata_item->data.f = *((float *)data);
+      break;
+      
+    case DOUBLE: 
+      metadata_item->data.d = *((double *)data);
+      break;
+      
+    case STRING: 
+      str_width = metadata_type->width;
+      s = (char *)malloc(str_width * sizeof(char));
+      if (s == NULL) {
+        err(1, "malloc failure for s in fwrite_data_type_item.\n");
+      }
+      memcpy(s, data, str_width);
       metadata_item->data.s = s;
       break;
       
@@ -596,6 +648,18 @@ struct metadata_index *metadata_index_load(char *metadata_index_filename) {
   // Read header from metadata_index.dat
   read_metadata_index_header(metadata_index);
 
+  metadata_index->metadata_index_intervals = (char *)
+                                              mmap(0,
+                                                  (metadata_index->num_rows * metadata_index->row_width),
+                                                  PROT_WRITE | PROT_READ,
+                                                  MAP_SHARED,
+                                                  fileno(metadata_index->metadata_index_fp),
+                                                  metadata_index->header_offset);
+  
+
+  if (metadata_index->metadata_index_intervals == MAP_FAILED)
+      err(1, "Error mmapping file.");
+  
   return metadata_index;
 }
 
@@ -652,7 +716,7 @@ struct metadata_rows *read_metadata_rows(struct metadata_index *metadata_index) 
   return metadata_rows;
 }
 
-struct metadata_row *read_metadata_row(struct metadata_index *metadata_index, uint64_t interval_id) {
+struct metadata_row *read_metadata_row_old(struct metadata_index *metadata_index, uint64_t interval_id) {
   char *metadata_index_filename = metadata_index->metadata_index_filename;
   FILE *metadata_index_fp = metadata_index->metadata_index_fp;
 
@@ -685,6 +749,40 @@ struct metadata_row *read_metadata_row(struct metadata_index *metadata_index, ui
     metadata_item->type = metadata_index->types[i];
 
     fread_data_type_item(metadata_index_filename, metadata_index_fp, metadata_item);
+
+    metadata_row->items[i] = metadata_item;
+  }
+
+  return metadata_row;
+}
+
+struct metadata_row *read_metadata_row(struct metadata_index *metadata_index, uint64_t interval_id) {
+  uint64_t base_offset = metadata_index->row_width * interval_id;
+  char *data = metadata_index->metadata_index_intervals + base_offset;
+  
+  int i;
+  size_t fr, data_width;
+
+  struct metadata_row *metadata_row = (struct metadata_row *)malloc(sizeof(struct metadata_row));
+  if (metadata_row == NULL) {
+    err(1, "malloc failure for metadata_row in read_metadata_row.\n");
+  }
+
+  metadata_row->num = metadata_index->num_cols;
+  
+  metadata_row->items = (struct metadata_item **)malloc(metadata_row->num * sizeof(struct metadata_item*));
+  if (metadata_row->items == NULL) {
+    err(1, "malloc failure for metadata_row->items in read_metadata_row.\n");
+  }
+
+  for (i = 0; i < metadata_row->num; ++i) {
+    struct metadata_item *metadata_item = (struct metadata_item *)malloc(sizeof(struct metadata_item));
+    if (metadata_item == NULL) {
+      err(1, "malloc failure for metadata_item in read_metadata_row.\n");
+    }
+    metadata_item->type = metadata_index->types[i];
+
+    fread_data_type_item_ptr(data + metadata_index->col_offsets[i], metadata_item);
 
     metadata_row->items[i] = metadata_item;
   }

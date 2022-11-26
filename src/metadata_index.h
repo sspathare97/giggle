@@ -86,6 +86,7 @@ struct metadata_index {
 
   char *metadata_index_filename;
   FILE *metadata_index_fp;
+  char *metadata_index_intervals; // mmapped char pointer to the file
   
   uint8_t num_cols;
   uint16_t row_width; // total width of each data row
@@ -131,6 +132,8 @@ struct metadata_rows *read_metadata_rows(struct metadata_index *metadata_index);
 void metadata_rows_destroy(struct metadata_rows *metadata_rows);
 
 struct metadata_row *read_metadata_row(struct metadata_index *metadata_index, uint64_t interval_id);
+struct metadata_row *read_metadata_row_old(struct metadata_index *metadata_index, uint64_t interval_id);
+// struct metadata_row *read_metadata_row_ptr(struct metadata_index *metadata_index, uint64_t interval_id);
 void metadata_row_destroy(struct metadata_row *metadata_row);
 
 struct metadata_item *read_metadata_item_by_column_id(struct metadata_index *metadata_index, uint64_t interval_id, uint8_t column_id);
